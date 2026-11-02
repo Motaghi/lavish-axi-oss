@@ -341,7 +341,7 @@ function observePollResponses(ctx, { fault = null } = {}) {
         if (!String(this.req?.url).startsWith("/api/poll") || this.lavishPollRecord) {
           return originalEnd.apply(this, args);
         }
-        const record = { res: this, closed: null };
+        const record = { res: this, closed: null, payloadBytes: Buffer.byteLength(args[0] ?? "") };
         record.closed = new Promise((resolve) => {
           this.once("close", () =>
             resolve({ writableEnded: this.writableEnded, writableFinished: this.writableFinished }),
@@ -450,6 +450,32 @@ async function pollUntilEnd(ctx, { deliver, prompts, observer, rawPoll = {} }) {
     }
   }
   const record = await withTimeout(ended, "the server to call end() on the poll response");
+  if (record.payloadBytes > 30_000_000) {
+    const sample = (phase) =>
+      console.log(
+        "WINPROBE-IN-SITU",
+        JSON.stringify({
+          platform: process.platform,
+          deliver,
+          phase,
+          payloadBytes: record.payloadBytes,
+          contentLength: record.res.getHeader("content-length"),
+          finished: record.res.writableFinished,
+          writableLength: record.res.socket?.writableLength,
+          bytesWritten: record.res.socket?.bytesWritten,
+          bytesRead: socket.bytesRead,
+          paused: socket.isPaused(),
+          reading: Reflect.get(socket, "_handle")?.reading,
+        }),
+      );
+    sample("end");
+    await yieldToEventLoop();
+    sample("immediate");
+    await delay(100);
+    sample("100ms");
+    await delay(900);
+    sample("1000ms");
+  }
   return { record, socket, chatBefore };
 }
 

@@ -8,7 +8,12 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 test("diagnostic: paused loopback write completion", { timeout: 60000 }, async () => {
   for (const mib of [1, 4, 16, 32, 64, 128, 256]) {
     for (const mode of ["paused", "onread", "queued"]) {
-      const server = createServer();
+      const peers = new Set();
+      const server = createServer((socket) => {
+        peers.add(socket);
+        socket.on("error", () => {});
+        socket.once("close", () => peers.delete(socket));
+      });
       let peer;
       let callback = false;
       let secondCallback = false;
@@ -25,7 +30,6 @@ test("diagnostic: paused loopback write completion", { timeout: 60000 }, async (
         const accepted = once(server, "connection");
         client.connect(address.port, "127.0.0.1");
         [peer] = await accepted;
-        peer.on("error", () => {});
         peer.write(Buffer.alloc(mib * 1024 * 1024, 97), () => {
           callback = true;
         });
@@ -62,7 +66,7 @@ test("diagnostic: paused loopback write completion", { timeout: 60000 }, async (
       } finally {
         const closed = once(client, "close");
         client.destroy();
-        peer?.destroy();
+        for (const socket of peers) socket.destroy();
         await closed;
         await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve(undefined))));
       }

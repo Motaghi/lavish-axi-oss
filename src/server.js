@@ -565,12 +565,14 @@ export async function serve({
     return rest;
   }
 
-  // Recovery covers a disconnect during the destructive take and a response that fails before
-  // finish. docs/invariants.md#request-flow owns the delivery boundary and recovery guarantees.
-  // A restore that comes back short is logged, so a batch that could not be put back whole is
-  // visible instead of silently gone.
+  // `takeFeedback` is destructive: it clears the batch from `state.json` before anything is
+  // written to the response. A client that disconnected while that take was in flight would
+  // otherwise lose the feedback for good, so put it back verbatim through the store's `restore`
+  // mode and leave delivery unmarked - nothing reached an agent. A restore that comes back short
+  // is logged, so a batch that could not be put back whole is visible instead of silently gone.
   // A restore that THROWS (the state write failed) is the same loss with no return value to
-  // inspect. Log and swallow it here so recovery failure does not prevent poll cleanup.
+  // inspect, and the caller is a socket the client already closed, so it is logged and swallowed
+  // here rather than escaping into an error path that has no one left to tell.
   // The re-queued batch also has to be announced: another poll can take "waiting" in the window
   // between the destructive take and this restore, and it would then long-poll forever over
   // feedback that is sitting in `state.json`. Emitting wakes it exactly like a fresh `/prompts`.

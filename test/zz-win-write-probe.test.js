@@ -23,13 +23,19 @@ test("diagnostic: paused loopback write completion", { timeout: 60000 }, async (
       client.on("error", () => {});
       if (mode !== "onread") client.pause();
       try {
+        const connectSignal = AbortSignal.timeout(5000);
         server.listen(0, "127.0.0.1");
-        await once(server, "listening");
+        await once(server, "listening", { signal: connectSignal });
         const address = server.address();
         assert.ok(address && typeof address === "object");
-        const accepted = once(server, "connection");
+        const connected = once(client, "connect", { signal: connectSignal });
         client.connect(address.port, "127.0.0.1");
-        [peer] = await accepted;
+        await connected;
+        while (!peer) {
+          peer = [...peers].find((socket) => socket.remotePort === client.localPort);
+          if (!peer) await once(server, "connection", { signal: connectSignal });
+        }
+        assert.equal(peer.remotePort, client.localPort);
         peer.write(Buffer.alloc(mib * 1024 * 1024, 97), () => {
           callback = true;
         });
@@ -47,6 +53,8 @@ test("diagnostic: paused loopback write completion", { timeout: 60000 }, async (
               mib,
               mode,
               phase,
+              peerPort: peer.remotePort,
+              clientPort: client.localPort,
               callback,
               secondCallback,
               writableLength: peer.writableLength,
@@ -64,11 +72,13 @@ test("diagnostic: paused loopback write completion", { timeout: 60000 }, async (
         await delay(900);
         sample("1000ms");
       } finally {
-        const closed = once(client, "close");
+        const cleanupSignal = AbortSignal.timeout(5000);
+        const serverClosed = once(server, "close", { signal: cleanupSignal });
+        const clientClosed = client.closed ? Promise.resolve() : once(client, "close", { signal: cleanupSignal });
+        server.close();
         client.destroy();
         for (const socket of peers) socket.destroy();
-        await closed;
-        await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve(undefined))));
+        await Promise.all([serverClosed, clientClosed]);
       }
     }
   }

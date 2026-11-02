@@ -341,7 +341,14 @@ function observePollResponses(ctx, { fault = null } = {}) {
         if (!String(this.req?.url).startsWith("/api/poll") || this.lavishPollRecord) {
           return originalEnd.apply(this, args);
         }
-        const record = { res: this, closed: null, payloadBytes: Buffer.byteLength(args[0] ?? "") };
+        const payload = JSON.parse(String(args[0]));
+        const record = {
+          res: this,
+          closed: null,
+          payloadBytes: Buffer.byteLength(args[0] ?? ""),
+          statusCode: this.statusCode,
+          response: { status: payload.status, prompts: summarize(payload.prompts) },
+        };
         record.closed = new Promise((resolve) => {
           this.once("close", () =>
             resolve({ writableEnded: this.writableEnded, writableFinished: this.writableFinished }),
@@ -459,6 +466,8 @@ async function pollUntilEnd(ctx, { deliver, prompts, observer, rawPoll = {} }) {
           deliver,
           phase,
           payloadBytes: record.payloadBytes,
+          statusCode: record.statusCode,
+          response: record.response,
           contentLength: record.res.getHeader("content-length"),
           finished: record.res.writableFinished,
           writableLength: record.res.socket?.writableLength,
